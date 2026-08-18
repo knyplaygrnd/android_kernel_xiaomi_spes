@@ -1,19 +1,67 @@
-Linux kernel
-============
+# 🔥 Kessy - Guia de Compilação
 
-There are several guides for kernel developers and users. These guides can
-be rendered in a number of formats, like HTML and PDF. Please read
-Documentation/admin-guide/README.rst first.
+Guia completo para compilar o **Kernel kessy** (Xiaomi Spes) com KernelSU.
 
-In order to build the documentation, use ``make htmldocs`` or
-``make pdfdocs``.  The formatted documentation can also be read online at:
+**Requisitos:**
+- linux, de preferência Ubuntu 22.04 ou Debian
+- 2 núcleos e 4gb de ram 
+- possuir um cérebro 
 
-    https://www.kernel.org/doc/html/latest/
+---
 
-There are various text files in the Documentation/ subdirectory,
-several of them using the Restructured Text markup notation.
-See Documentation/00-INDEX for a list of what is contained in each file.
+## 📦 1. Instalação das Dependências
 
-Please read the Documentation/process/changes.rst file, as it contains the
-requirements for building and running the kernel, and information about
-the problems which may result by upgrading your kernel.
+```bash
+sudo apt update
+sudo apt install git gcc g++ make bc bison flex libssl-dev libelf-dev ccache curl wget zip unzip python3 python-is-python3
+
+# Clang
+git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
+
+# Kernel Source
+git clone https://github.com/knyplaygrnd/android_kernel_xiaomi_spes.git
+
+## 🔧. Preparação da Source
+
+cd android_kernel_xiaomi_spes
+git clone https://github.com/backslashxx/KernelSU.git
+
+## ⚙️ 5. Definir as Variáveis de Ambiente
+export PATH=$HOME/linux-x86/clang-r596125/bin:$PATH
+export ARCH=arm64
+export SUBARCH=arm64
+export LLVM=1
+
+# Nota: Neste caso está sendo utilizado o Clang 22.0.2
+
+## 🛠️ 6. Gerar o Defconfig
+make O=out ARCH=arm64 LLVM=1 vendor/bengal-perf_defconfig asano.config vendor/xiaomi/spes.config
+
+## 🚀 7. Compilar o Kernel
+make -j$(nproc) O=out ARCH=arm64 LLVM=1 Image.gz dtbo.img dtb.img
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
