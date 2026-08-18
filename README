@@ -19,7 +19,7 @@ sudo apt install git gcc g++ make bc bison flex libssl-dev libelf-dev ccache cur
 git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
 
 # Kernel Source
-git clone https://github.com/knyplaygrnd/android_kernel_xiaomi_spes.git
+git clone https://github.com/Nexs7/android_kernel_xiaomi_spes.git
 
 ## 🔧. Preparação da Source
 
