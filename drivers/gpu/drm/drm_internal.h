@@ -185,6 +185,9 @@ int drm_syncobj_reset_ioctl(struct drm_device *dev, void *data,
 int drm_syncobj_signal_ioctl(struct drm_device *dev, void *data,
 			     struct drm_file *file_private);
 
+ssize_t dsi_display_dynamic_fps_read(struct drm_connector *connector,
+				char *buf);
+
 /* drm_framebuffer.c */
 void drm_framebuffer_print_info(struct drm_printer *p, unsigned int indent,
 				const struct drm_framebuffer *fb);

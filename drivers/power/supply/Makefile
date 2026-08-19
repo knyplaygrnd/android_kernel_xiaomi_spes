@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 subdir-ccflags-$(CONFIG_POWER_SUPPLY_DEBUG) := -DDEBUG
+ccflags-nopmi-base := -I$(srctree)/drivers/power/supply/nopmi
+export ccflags-nopmi-base
 
 power_supply-y				:= power_supply_core.o
 power_supply-$(CONFIG_SYSFS)		+= power_supply_sysfs.o
@@ -86,3 +88,5 @@ obj-$(CONFIG_AXP288_FUEL_GAUGE) += axp288_fuel_gauge.o
 obj-$(CONFIG_AXP288_CHARGER)	+= axp288_charger.o
 obj-$(CONFIG_CHARGER_CROS_USBPD)	+= cros_usbpd-charger.o
 obj-$(CONFIG_ARCH_QCOM)		+= qcom/
+obj-$(CONFIG_BATT_VERIFY_BY_DS28E16)	+= battery_secret/
+obj-$(CONFIG_NOPMI_CHARGER)	+= nopmi/ maxim/ syv/ cp_manager/

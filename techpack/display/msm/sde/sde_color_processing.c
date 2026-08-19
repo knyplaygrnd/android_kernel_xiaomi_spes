@@ -3969,7 +3969,7 @@ void sde_cp_crtc_enable(struct drm_crtc *drm_crtc)
 	if (!num_mixers)
 		return;
 	mutex_lock(&crtc->crtc_cp_lock);
-	info = vzalloc(sizeof(struct sde_kms_info));
+	info = kvzalloc(sizeof(struct sde_kms_info), GFP_KERNEL);
 	if (info) {
 		for (i = 0; i < ARRAY_SIZE(dspp_cap_update_func); i++)
 			dspp_cap_update_func[i](crtc, info);
@@ -3978,7 +3978,7 @@ void sde_cp_crtc_enable(struct drm_crtc *drm_crtc)
 			info->data, SDE_KMS_INFO_DATALEN(info),
 			CRTC_PROP_DSPP_INFO);
 	}
-	vfree(info);
+	kvfree(info);
 	mutex_unlock(&crtc->crtc_cp_lock);
 }
 
@@ -3993,12 +3993,12 @@ void sde_cp_crtc_disable(struct drm_crtc *drm_crtc)
 	}
 	crtc = to_sde_crtc(drm_crtc);
 	mutex_lock(&crtc->crtc_cp_lock);
-	info = vzalloc(sizeof(struct sde_kms_info));
+	info = kvzalloc(sizeof(struct sde_kms_info), GFP_KERNEL);
 	if (info)
 		msm_property_set_blob(&crtc->property_info,
 				&crtc->dspp_blob_info,
 			info->data, SDE_KMS_INFO_DATALEN(info),
 			CRTC_PROP_DSPP_INFO);
 	mutex_unlock(&crtc->crtc_cp_lock);
-	vfree(info);
+	kvfree(info);
 }

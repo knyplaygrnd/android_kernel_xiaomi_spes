@@ -1,0 +1,7 @@
+config BATT_VERIFY_BY_DS28E16
+	tristate "Support ds28e16 as encryption IC"
+	depends on ARCH_QCOM
+	help
+	  Enable support for the DS28E16 battery verification IC.
+	  This driver must include the onewire physical controller required
+	  for communication.

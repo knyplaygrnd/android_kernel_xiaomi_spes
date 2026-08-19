@@ -16,6 +16,7 @@
 #include <linux/err.h>
 #include <linux/export.h>
 
+#include <drm/drm_encoder.h>
 #include <drm/drm_sysfs.h>
 #include <drm/drmP.h>
 #include "drm_internal.h"
@@ -227,16 +228,66 @@ static ssize_t modes_show(struct device *device,
 	return written;
 }
 
+extern int drm_get_panel_info(struct drm_bridge *bridge, char *name);
+static ssize_t panel_info_show(struct device *device,
+			       struct device_attribute *attr,
+			       char *buf)
+{
+	char pname[128] = {0};
+	struct drm_connector *connector;
+	struct drm_encoder *encoder;
+	struct drm_bridge *bridge;
+	int len;
+
+	connector = to_drm_connector(device);
+	if (!connector)
+		return 0;
+
+	encoder = connector->encoder;
+	if (!encoder)
+		return 0;
+
+	bridge = encoder->bridge;
+	if (!bridge)
+		return 0;
+
+	if (drm_get_panel_info(bridge, pname) <= 0)
+		return 0;
+
+	pname[sizeof(pname) - 1] = '\0';
+
+#if defined(CONFIG_TARGET_PROJECT_K7T)
+	len = strnlen(pname, sizeof(pname));
+	if (len > 10)
+		return snprintf(buf, PAGE_SIZE, "panel_name=%.*s_display\n",
+				min(len - 10, 32), pname + 10);
+#endif
+
+	return snprintf(buf, PAGE_SIZE, "panel_name=%s\n", pname);
+}
+
+static ssize_t dynamic_fps_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+
+	return dsi_display_dynamic_fps_read(connector, buf);
+}
+
 static DEVICE_ATTR_RW(status);
 static DEVICE_ATTR_RO(enabled);
 static DEVICE_ATTR_RO(dpms);
 static DEVICE_ATTR_RO(modes);
+static DEVICE_ATTR_RO(panel_info);
+static DEVICE_ATTR_RO(dynamic_fps);
 
 static struct attribute *connector_dev_attrs[] = {
 	&dev_attr_status.attr,
 	&dev_attr_enabled.attr,
 	&dev_attr_dpms.attr,
 	&dev_attr_modes.attr,
+	&dev_attr_panel_info.attr,
+	&dev_attr_dynamic_fps.attr,
 	NULL
 };
 

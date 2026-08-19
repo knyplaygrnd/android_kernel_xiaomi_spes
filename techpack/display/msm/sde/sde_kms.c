@@ -891,8 +891,10 @@ static int _sde_kms_get_blank(struct drm_crtc_state *crtc_state,
 		blank = DRM_PANEL_BLANK_UNBLANK;
 		break;
 	case SDE_MODE_DPMS_LP1:
+		blank = DRM_PANEL_BLANK_LP1;
+		break;
 	case SDE_MODE_DPMS_LP2:
-		blank = DRM_PANEL_BLANK_LP;
+		blank = DRM_PANEL_BLANK_LP2;
 		break;
 	case SDE_MODE_DPMS_OFF:
 	default:

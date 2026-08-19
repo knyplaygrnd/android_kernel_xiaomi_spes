@@ -46,6 +46,7 @@ extern char __dtb_end[];
 
 /* Other Prototypes */
 extern u64 of_flat_dt_translate_address(unsigned long node);
+extern void early_init_dt_setup_pureason_arch(unsigned long pu_reason);
 extern void of_fdt_limit_memory(int limit);
 extern int of_fdt_get_ddrtype(void);
 extern int of_fdt_get_ddrrank(int channel);

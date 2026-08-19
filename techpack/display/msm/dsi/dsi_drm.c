@@ -165,6 +165,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+	struct drm_panel *drm_panel;
+	struct drm_panel_notifier notify_data;
+	int power_mode = DRM_PANEL_BLANK_UNBLANK;
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
@@ -173,6 +176,12 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 
 	if (!c_bridge || !c_bridge->display || !c_bridge->display->panel) {
 		DSI_ERR("Incorrect bridge details\n");
+		return;
+	}
+
+	drm_panel = dsi_display_get_drm_panel(c_bridge->display);
+	if (!drm_panel) {
+		DSI_ERR("invalid drm_panel\n");
 		return;
 	}
 
@@ -187,6 +196,11 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		       c_bridge->id, rc);
 		return;
 	}
+
+	notify_data.is_primary = c_bridge->display->is_prim_display;
+	notify_data.data = &power_mode;
+	drm_panel_notifier_call_chain(drm_panel,
+			DRM_PANEL_EARLY_EVENT_BLANK, &notify_data);
 
 	if (c_bridge->dsi_mode.dsi_mode_flags &
 		(DSI_MODE_FLAG_SEAMLESS | DSI_MODE_FLAG_VRR |
@@ -214,10 +228,29 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	}
 	SDE_ATRACE_END("dsi_display_enable");
 
+	drm_panel_notifier_call_chain(drm_panel,
+			DRM_PANEL_EVENT_BLANK, &notify_data);
+
 	rc = dsi_display_splash_res_cleanup(c_bridge->display);
 	if (rc)
 		DSI_ERR("Continuous splash pipeline cleanup failed, rc=%d\n",
 									rc);
+}
+
+static int dsi_bridge_get_panel_info(struct drm_bridge *bridge, char *buf)
+{
+	int rc = 0;
+	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+
+	if (!c_bridge) {
+		DSI_ERR("Invalid params\n");
+		return rc;
+	}
+
+	if (c_bridge->display->name)
+		return snprintf(buf, PAGE_SIZE, c_bridge->display->name);
+
+	return rc;
 }
 
 static void dsi_bridge_enable(struct drm_bridge *bridge)
@@ -256,16 +289,30 @@ static void dsi_bridge_disable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	int private_flags;
-	struct dsi_display *display;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+	struct dsi_display *display = c_bridge->display;
+	struct drm_panel *drm_panel;
+	struct drm_panel_notifier notify_data;
+	int power_mode = DRM_PANEL_BLANK_POWERDOWN;
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
 		return;
 	}
-	display = c_bridge->display;
+
+	drm_panel = dsi_display_get_drm_panel(display);
+	if (!drm_panel) {
+		DSI_ERR("Invalid drm_panel\n");
+		return;
+	}
+
 	private_flags =
 		bridge->encoder->crtc->state->adjusted_mode.private_flags;
+
+	notify_data.is_primary = display->is_prim_display;
+	notify_data.data = &power_mode;
+	drm_panel_notifier_call_chain(drm_panel,
+			DRM_PANEL_R_EARLY_EVENT_BLANK, &notify_data);
 
 	if (display && display->drm_conn) {
 		display->poms_pending =
@@ -285,11 +332,25 @@ static void dsi_bridge_post_disable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+	struct drm_panel *drm_panel;
+	struct drm_panel_notifier notify_data;
+	int power_mode = DRM_PANEL_BLANK_POWERDOWN;
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
 		return;
 	}
+
+	drm_panel = dsi_display_get_drm_panel(c_bridge->display);
+	if (!drm_panel) {
+		DSI_ERR("invalid drm_panel\n");
+		return;
+	}
+
+	notify_data.is_primary = c_bridge->display->is_prim_display;
+	notify_data.data = &power_mode;
+	drm_panel_notifier_call_chain(drm_panel,
+			DRM_PANEL_EARLY_EVENT_BLANK, &notify_data);
 
 	SDE_ATRACE_BEGIN("dsi_bridge_post_disable");
 	SDE_ATRACE_BEGIN("dsi_display_disable");
@@ -310,6 +371,9 @@ static void dsi_bridge_post_disable(struct drm_bridge *bridge)
 		return;
 	}
 	SDE_ATRACE_END("dsi_bridge_post_disable");
+
+	drm_panel_notifier_call_chain(drm_panel,
+			DRM_PANEL_EVENT_BLANK, &notify_data);
 }
 
 static void dsi_bridge_mode_set(struct drm_bridge *bridge,
@@ -537,6 +601,7 @@ static const struct drm_bridge_funcs dsi_bridge_ops = {
 	.disable      = dsi_bridge_disable,
 	.post_disable = dsi_bridge_post_disable,
 	.mode_set     = dsi_bridge_mode_set,
+	.disp_get_panel_info = dsi_bridge_get_panel_info,
 };
 
 int dsi_conn_set_info_blob(struct drm_connector *connector,
@@ -1017,6 +1082,9 @@ int dsi_conn_post_kickoff(struct drm_connector *connector,
 				return -EINVAL;
 			}
 		}
+		if (dsi_panel_initialized(display->panel) &&
+				adj_mode.timing.refresh_rate == 90)
+			dsi_panel_set_backlight_control(display->panel, &adj_mode);
 
 		c_bridge->dsi_mode.dsi_mode_flags &= ~DSI_MODE_FLAG_VRR;
 	}

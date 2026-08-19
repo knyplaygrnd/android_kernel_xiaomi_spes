@@ -486,6 +486,10 @@ struct sde_connector {
 
 	bool last_cmd_tx_sts;
 	bool hdr_capable;
+
+	int esd_irq;
+	bool esd_irq_registered;
+	atomic_t esd_pending;
 };
 
 /**

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2011-2014, 2017-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
+
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -18,9 +20,12 @@ static struct snd_soc_dai_driver msm_stub_dais[] = {
 		.playback = { /* Support maximum range */
 			.stream_name = "Playback",
 			.channels_min = 1,
-			.channels_max = 8,
-			.rates = SNDRV_PCM_RATE_8000_48000,
-			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+			.channels_max = 32,
+			.rates = SNDRV_PCM_RATE_8000_96000,
+			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
+				    SNDRV_PCM_FMTBIT_S24_LE |
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+				    SNDRV_PCM_FMTBIT_S32_LE),
 		},
 	},
 	{
@@ -28,10 +33,12 @@ static struct snd_soc_dai_driver msm_stub_dais[] = {
 		.capture = { /* Support maximum range */
 			.stream_name = "Record",
 			.channels_min = 1,
-			.channels_max = 8,
-			.rates = SNDRV_PCM_RATE_8000_48000,
+			.channels_max = 32,
+			.rates = SNDRV_PCM_RATE_8000_96000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+				    SNDRV_PCM_FMTBIT_S32_LE),
 		},
 	},
 };

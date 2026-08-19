@@ -37,16 +37,16 @@ struct cpu_cooling_ops {
 };
 
 #ifdef CONFIG_CPU_THERMAL
+#ifdef CONFIG_ARCH_QCOM
+void cpu_limits_set_level(unsigned int cpu, unsigned int max_freq);
+#endif
+
 /**
  * cpufreq_cooling_register - function to create cpufreq cooling device.
  * @policy: cpufreq policy.
  */
 struct thermal_cooling_device *
 cpufreq_cooling_register(struct cpufreq_policy *policy);
-
-struct thermal_cooling_device *
-cpufreq_platform_cooling_register(struct cpufreq_policy *policy,
-					struct cpu_cooling_ops *ops);
 
 /**
  * cpufreq_platform_cooling_register - create cpufreq cooling device with

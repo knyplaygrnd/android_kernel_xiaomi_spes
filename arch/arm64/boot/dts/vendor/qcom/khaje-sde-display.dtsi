@@ -1,5 +1,7 @@
 #include "dsi-panel-td4330-truly-v2-singlemipi-fhd-cmd.dtsi"
 #include "dsi-panel-td4330-truly-v2-singlemipi-fhd-vid.dtsi"
+#include "dsi-panel-k7-38-0c-0a-fhdp-video.dtsi"
+#include "dsi-panel-k7-38-0c-0b-fhdp-video.dtsi"
 #include "dsi-panel-nt36672e-fhd-plus-90hz-video.dtsi"
 #include "dsi-panel-nt36672e-fhd-plus-120hz-video.dtsi"
 #include "dsi-panel-sim-video.dtsi"
@@ -37,35 +39,75 @@
 			"src_byte_clk0", "src_pixel_clk0",
 			"shadow_byte_clk0", "shadow_pixel_clk0";
 		pinctrl-names = "panel_active", "panel_suspend";
-		pinctrl-0 = <&sde_dsi_active &sde_te_active>;
+		pinctrl-0 = <&sde_dsi_active &sde_te_active &lcm1p8en_active>;
 		pinctrl-1 = <&sde_dsi_suspend &sde_te_suspend>;
 
 		qcom,platform-te-gpio = <&tlmm 81 0>;
 		qcom,panel-te-source = <0>;
+		qcom,platform-en-gpio = <&pm6125_gpios 9 0>;
 
-		vddio-supply = <&L9A>;
+		/* vddio-supply = <&L9A>; */
 		qcom,mdp = <&mdss_mdp>;
 
 		qcom,dsi-default-panel =
-			<&dsi_td4330_truly_v2_video>;
+			<&dsi_td4330_truly_v2_video
+			&dsi_k7_38_0c_0a_video
+			&dsi_k7_38_0c_0b_video>;
 	};
 
 	sde_wb: qcom,wb-display@0 {
-		status = "disabled";
 		compatible = "qcom,wb-display";
 		cell-index = <0>;
 		label = "wb_display";
+		status = "disabled";
 	};
 
 	msm_notifier: qcom,msm_notifier@0 {
 		compatible = "qcom,msm-notifier";
 		panel = <&dsi_nt36672e_fhd_plus_90hz_video
-			&dsi_nt36672e_fhd_plus_120hz_video>;
+			&dsi_nt36672e_fhd_plus_120hz_video
+			&dsi_k7_38_0c_0a_video
+			&dsi_k7_38_0c_0b_video>;
 	};
 };
 
 &mdss_mdp {
 	connectors = <&sde_dsi>;
+};
+
+&dsi_k7_38_0c_0a_video {
+	qcom,esd-check-enabled;
+	qcom,mdss-dsi-panel-status-check-mode = "reg_read";
+	qcom,mdss-dsi-panel-status-command = [06 01 00 01 00 00 01 0a];
+	qcom,mdss-dsi-panel-status-command-state = "dsi_hs_mode";
+	qcom,mdss-dsi-panel-status-value = <0x9d>;
+	qcom,mdss-dsi-panel-on-check-value = <0x9d>;
+	qcom,mdss-dsi-panel-status-read-length = <1>;
+	qcom,dsi-select-clocks = "mux_byte_clk0", "mux_pixel_clk0", "src_byte_clk0", "src_pixel_clk0", "shadow_byte_clk0", "shadow_pixel_clk0";
+	qcom,mdss-dsi-display-timings {
+		timing@0 {
+			qcom,mdss-dsi-panel-phy-timings = [00 24 09 0a 1a 25 09 0a 09 02 04 00 1e 0f];
+			qcom,display-topology = <1 1 1>;
+			qcom,default-topology-index = <0>;
+		};
+	};
+};
+
+&dsi_k7_38_0c_0b_video {
+	qcom,mdss-dsi-panel-status-check-mode = "reg_read";
+	qcom,mdss-dsi-panel-status-command = [06 01 00 01 00 00 01 0a];
+	qcom,mdss-dsi-panel-status-command-state = "dsi_hs_mode";
+	qcom,mdss-dsi-panel-status-value = <0x9f>;
+	qcom,mdss-dsi-panel-on-check-value = <0x9f>;
+	qcom,mdss-dsi-panel-status-read-length = <1>;
+	qcom,dsi-select-clocks = "mux_byte_clk0", "mux_pixel_clk0";
+	qcom,mdss-dsi-display-timings {
+		timing@0 {
+			qcom,mdss-dsi-panel-phy-timings = [00 24 09 0a 1a 25 09 0a 09 02 04 00 1e 0f];
+			qcom,display-topology = <1 1 1>;
+			qcom,default-topology-index = <0>;
+		};
+	};
 };
 
 &dsi_td4330_truly_v2_video {

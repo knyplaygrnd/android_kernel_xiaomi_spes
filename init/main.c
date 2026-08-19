@@ -105,6 +105,26 @@ static int kernel_init(void *);
 extern void init_IRQ(void);
 extern void radix_tree_init(void);
 
+bool is_dt2w_sensor = false;
+EXPORT_SYMBOL(is_dt2w_sensor);
+
+static int __init read_is_dt2w_sensor(char *s)
+{
+    strtobool(s, &is_dt2w_sensor);
+    return 1;
+}
+__setup("init.is_dt2w_sensor=", read_is_dt2w_sensor);
+
+bool is_st2w_sensor = false;
+EXPORT_SYMBOL(is_st2w_sensor);
+
+static int __init read_is_st2w_sensor(char *s)
+{
+    strtobool(s, &is_st2w_sensor);
+    return 1;
+}
+__setup("init.is_st2w_sensor=", read_is_st2w_sensor);
+
 /*
  * Debug helper: via this flag we know that we are in 'early bootup code'
  * where only the boot processor is running with IRQ disabled.  This means
@@ -552,10 +572,13 @@ static void __init mm_init(void)
 	pti_init();
 }
 
+int fpsensor=1;
+
 asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
+	char *p = NULL;
 
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
@@ -586,6 +609,15 @@ asmlinkage __visible void __init start_kernel(void)
 
 	pr_notice("Kernel command line: %s\n", boot_command_line);
 	/* parameters may set static keys */
+	p = strstr(command_line, "androidboot.fpsensor=fpc");
+	if (p) {
+		fpsensor = 1; //fpc fingerprint
+		pr_info("This is fpc fingerprint\n");
+	} else {
+		fpsensor = 2; //goodix fingerprint
+		pr_info("This is goodix fingerprint\n");
+	}
+
 	jump_label_init();
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",

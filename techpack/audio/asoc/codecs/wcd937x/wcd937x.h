@@ -16,4 +16,9 @@ extern int wcd937x_info_create_codec_entry(struct snd_info_entry *codec_root,
 }
 #endif /* CONFIG_SND_SOC_WCD937X */
 
+#ifdef CONFIG_SND_SOC_AW87XXX
+int aw87xxx_dev_0_pa(int enable, int mode);
+int aw87xxx_dev_1_pa(int enable, int mode);
+#endif /* CONFIG_SND_SOC_AW87XXX */
+
 #endif

@@ -334,6 +334,8 @@ struct drm_bridge_funcs {
 	 */
 	void (*atomic_post_disable)(struct drm_bridge *bridge,
 				    struct drm_atomic_state *state);
+
+	int (*disp_get_panel_info)(struct drm_bridge *bridge, char *name);
 };
 
 /**

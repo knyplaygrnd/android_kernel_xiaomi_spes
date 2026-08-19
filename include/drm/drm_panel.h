@@ -33,19 +33,26 @@
 #define DRM_PANEL_EVENT_BLANK		0x01
 /* A hardware display blank early change occurred */
 #define DRM_PANEL_EARLY_EVENT_BLANK	0x02
+/* A hardware display blank more early change occurred */
+#define DRM_PANEL_R_EARLY_EVENT_BLANK	0x03
 
 enum {
 	/* panel: power on */
 	DRM_PANEL_BLANK_UNBLANK,
+	/* panel: low power mode */
+	DRM_PANEL_BLANK_LP1,
+	DRM_PANEL_BLANK_LP2,
+	/* panel: PM mode */
+	DRM_PANEL_BLANK_STANDBY,
+	DRM_PANEL_BLANK_SUSPEND,
 	/* panel: power off */
 	DRM_PANEL_BLANK_POWERDOWN,
-	/* panel: low power mode */
-	DRM_PANEL_BLANK_LP,
 	/* fps change */
 	DRM_PANEL_BLANK_FPS_CHANGE,
 };
 
 struct drm_panel_notifier {
+	bool is_primary;
 	int refresh_rate;
 	void *data;
 	uint32_t id;

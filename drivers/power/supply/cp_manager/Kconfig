@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+menu "Charge Pump and PD Policy Manager"
+	depends on NOPMI_CHARGER
+	depends on I2C && REGMAP_I2C
+
+config CHARGER_SC8551
+	tristate "SC8551 Charger Pumper Driver"
+	depends on I2C
+
+config CHARGER_PD_POLICY
+	tristate "Charger PD Policy control"
+	depends on CHARGER_SC8551 || TCPC_CLASS
+
+endmenu

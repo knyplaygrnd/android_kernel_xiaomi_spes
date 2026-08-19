@@ -1,0 +1,10 @@
+menu "Maxim Charger and Fuel Gauge"
+	depends on NOPMI_CHARGER
+
+config CHARGER_MAX77729
+	tristate "Support maxim charger Driver"
+
+config FUELGAUGE_MAX77729
+	tristate "Support as maxim fuel gauge IC"
+
+endmenu

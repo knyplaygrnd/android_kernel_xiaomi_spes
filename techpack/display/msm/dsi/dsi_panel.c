@@ -73,7 +73,7 @@ static char dsi_dsc_rc_range_min_qp_1_1_scr1[][15] = {
  */
 static char dsi_dsc_rc_range_max_qp_1_1[][15] = {
 	{4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11, 12, 13, 13, 15},
-	{4, 8, 9, 10, 11, 11, 11, 12, 13, 14, 15, 16, 17, 17, 19},
+	{8, 8, 9, 10, 11, 11, 11, 12, 13, 14, 15, 16, 17, 17, 19},
 	{12, 12, 13, 14, 15, 15, 15, 16, 17, 18, 19, 20, 21, 21, 23},
 	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
 	};
@@ -459,16 +459,25 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 		goto exit;
 	}
 
+	udelay(150);
+
 	rc = dsi_panel_set_pinctrl_state(panel, true);
 	if (rc) {
 		DSI_ERR("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
 		goto error_disable_vregs;
 	}
 
-	rc = dsi_panel_reset(panel);
-	if (rc) {
-		DSI_ERR("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
-		goto error_disable_gpio;
+	/*
+	 * If lp11_init is set, reset sequence is deferred to
+	 * dsi_panel_prepare()
+	 */
+	if (!panel->lp11_init) {
+		rc = dsi_panel_reset(panel);
+		if (rc) {
+			DSI_ERR("[%s] failed to reset panel, rc=%d\n",
+				panel->name, rc);
+			goto error_disable_gpio;
+		}
 	}
 
 	goto exit;
@@ -509,6 +518,8 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 			DSI_WARN("set dir for panel test gpio failed rc=%d\n",
 				 rc);
 	}
+
+	udelay(200);
 
 	rc = dsi_panel_set_pinctrl_state(panel, false);
 	if (rc) {
@@ -1830,6 +1841,12 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command",
 	"qcom,mdss-dsi-qsync-on-commands",
 	"qcom,mdss-dsi-qsync-off-commands",
+	"qcom,mdss-dsi-dispparam-hbm-on-command",
+	"qcom,mdss-dsi-dispparam-hbm-off-command",
+	"qcom,mdss-dsi-hbm1-on-command",
+	"qcom,mdss-dsi-hbm2-on-command",
+	"qcom,mdss-dsi-dispparam-bc-90hz-command",
+	"qcom,mdss-dsi-dispparam-bc-60hz-command",
 };
 
 const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
@@ -1856,6 +1873,12 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command-state",
 	"qcom,mdss-dsi-qsync-on-commands-state",
 	"qcom,mdss-dsi-qsync-off-commands-state",
+	"qcom,mdss-dsi-dispparam-hbm-on-command-state",
+	"qcom,mdss-dsi-dispparam-hbm-off-command-state",
+	"qcom,mdss-dsi-hbm1-on-command-state",
+	"qcom,mdss-dsi-hbm2-on-command-state",
+	"qcom,mdss-dsi-dispparam-bc-90hz-command-state",
+	"qcom,mdss-dsi-dispparam-bc-60hz-command-state",
 };
 
 static int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
@@ -2404,6 +2427,17 @@ static int dsi_panel_parse_bl_config(struct dsi_panel *panel)
 		panel->bl_config.brightness_max_level = 255;
 	} else {
 		panel->bl_config.brightness_max_level = val;
+	}
+
+	rc = utils->read_u32(utils->data, "qcom,mdss-brightness-init-level",
+		&val);
+	if (rc) {
+		DSI_DEBUG("[%s] brigheness-init-level unspecified, defaulting to 25 percent max level\n",
+			 panel->name);
+		panel->bl_config.brightness_init_level =
+			panel->bl_config.brightness_max_level >> 2;
+	} else {
+		panel->bl_config.brightness_init_level = val;
 	}
 
 	rc = utils->read_u32(utils->data, "qcom,mdss-dsi-bl-ctrl-dcs-subtype",
@@ -3285,11 +3319,40 @@ static int dsi_panel_parse_esd_config(struct dsi_panel *panel)
 	struct drm_panel_esd_config *esd_config;
 	struct dsi_parser_utils *utils = &panel->utils;
 	u8 *esd_mode = NULL;
+	unsigned long irqflags;
+	int gpio;
 
 	esd_config = &panel->esd_config;
 	esd_config->status_mode = ESD_MODE_MAX;
 	esd_config->esd_enabled = utils->read_bool(utils->data,
 		"qcom,esd-check-enabled");
+
+	/* ESD err will be parsed and prioritized */
+	gpio = of_get_named_gpio_flags(panel->panel_of_node,
+			"qcom,esd-err-irq-gpio", 0,
+			(enum of_gpio_flags *)&irqflags);
+	if (!gpio_is_valid(gpio)) {
+		DSI_ERR("qcom,esd-err-irq-gpio missing/invalid (%d)\n", gpio);
+	} else {
+		esd_config->esd_err_irq_flags = irqflags;
+
+		rc = devm_gpio_request_one(panel->parent, gpio, GPIOF_IN, "esd_err_int_gpio");
+		if (rc) {
+			DSI_ERR("gpio_request(%d) failed, rc=%d\n", gpio, rc);
+		} else {
+			rc = gpio_to_irq(gpio);
+			if (rc < 0) {
+				DSI_ERR("gpio_to_irq(%d) failed, rc=%d\n", gpio, rc);
+			} else {
+				esd_config->esd_err_irq_gpio = gpio;
+				esd_config->esd_err_irq = rc;
+				DSI_INFO("parser saved esd gpio=%d irq=%d irqflags=0x%lx\n",
+						esd_config->esd_err_irq_gpio,
+						esd_config->esd_err_irq,
+						esd_config->esd_err_irq_flags);
+			}
+		}
+	}
 
 	if (!esd_config->esd_enabled)
 		return 0;
@@ -3727,7 +3790,9 @@ void dsi_panel_put_mode(struct dsi_display_mode *mode)
 		dsi_panel_dealloc_cmd_packets(&mode->priv_info->cmd_sets[i]);
 	}
 
+	kfree(mode->priv_info->phy_timing_val);
 	kfree(mode->priv_info);
+	mode->priv_info = NULL;
 }
 
 void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
@@ -4003,10 +4068,11 @@ int dsi_panel_pre_prepare(struct dsi_panel *panel)
 
 	mutex_lock(&panel->panel_lock);
 
-	/* If LP11_INIT is set, panel will be powered up during prepare() */
-	if (panel->lp11_init)
-		goto error;
-
+	/*
+	 * Previously skipped when lp11_init was set. Now power_on is always
+	 * called here; when lp11_init is set, reset is simply deferred inside
+	 * power_on and will be done in dsi_panel_prepare().
+	 */
 	rc = dsi_panel_power_on(panel);
 	if (rc) {
 		DSI_ERR("[%s] panel power on failed, rc=%d\n", panel->name, rc);
@@ -4149,16 +4215,20 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
-	mutex_lock(&panel->panel_lock);
-
+	/*
+	 * When lp11_init is set, reset was skipped in power_on
+	 * Do panel_reset here
+	 */
 	if (panel->lp11_init) {
-		rc = dsi_panel_power_on(panel);
+		rc = dsi_panel_reset(panel);
 		if (rc) {
-			DSI_ERR("[%s] panel power on failed, rc=%d\n",
+			DSI_ERR("[%s] panel reset failed, rc=%d\n",
 			       panel->name, rc);
-			goto error;
+			goto error_panel_reset;
 		}
 	}
+
+	mutex_lock(&panel->panel_lock);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_PRE_ON);
 	if (rc) {
@@ -4169,6 +4239,17 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 
 error:
 	mutex_unlock(&panel->panel_lock);
+	return rc;
+
+error_panel_reset:
+	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
+		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
+
+	if (gpio_is_valid(panel->bl_config.en_gpio))
+		gpio_set_value(panel->bl_config.en_gpio, 0);
+
+	(void)dsi_panel_set_pinctrl_state(panel, false);
+	(void)dsi_pwr_enable_regulator(&panel->power_info, false);
 	return rc;
 }
 
@@ -4471,6 +4552,10 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	else
 		panel->panel_initialized = true;
 	mutex_unlock(&panel->panel_lock);
+
+	if (panel->hbm_mode)
+		dsi_panel_apply_hbm_mode(panel);
+
 	return rc;
 }
 
@@ -4494,6 +4579,77 @@ int dsi_panel_post_enable(struct dsi_panel *panel)
 error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
+}
+
+int dsi_panel_apply_hbm_mode(struct dsi_panel *panel)
+{
+	static const enum dsi_cmd_set_type type_map[] = {
+		DSI_CMD_SET_DISP_HBM_OFF,
+		DSI_CMD_SET_DISP_HBM_ON,
+		DSI_CMD_SET_HBM1_ON,
+		DSI_CMD_SET_HBM2_ON
+	};
+	enum dsi_cmd_set_type type;
+	int rc = 0;
+	int idx;
+
+	if (!panel || !panel->panel_initialized) {
+		DSI_ERR("invalid params\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&panel->panel_lock);
+
+	idx = panel->hbm_mode;
+	if (idx < 0 || idx >= (int)ARRAY_SIZE(type_map)) {
+		DSI_ERR("hbm_mode %d out of range\n", idx);
+		mutex_unlock(&panel->panel_lock);
+		return -EINVAL;
+	}
+	type = type_map[idx];
+	rc = dsi_panel_tx_cmd_set(panel, type);
+
+	mutex_unlock(&panel->panel_lock);
+
+	return rc;
+}
+
+void dsi_panel_set_backlight_control(struct dsi_panel *panel,
+			struct dsi_display_mode *adj_mode)
+{
+	struct dsi_display_mode *cur_mode;
+	enum dsi_cmd_set_type cmd;
+	int rc = 0;
+
+	if (!panel || !panel->panel_initialized || !adj_mode) {
+		DSI_ERR("invalid params\n");
+		return;
+	}
+
+	mutex_lock(&panel->panel_lock);
+
+	cur_mode = panel->cur_mode;
+	if (!cur_mode || !cur_mode->priv_info) {
+		DSI_ERR("Invalid Mode\n");
+		goto out;
+	}
+
+	if (!cur_mode->priv_info->cmd_sets[DSI_CMD_SET_DISP_BC_90HZ].count)
+		goto out;
+
+	if (adj_mode->timing.refresh_rate == 90)
+		cmd = DSI_CMD_SET_DISP_BC_90HZ;
+	else if (adj_mode->timing.refresh_rate == 60)
+		cmd = DSI_CMD_SET_DISP_BC_60HZ;
+
+	rc = dsi_panel_tx_cmd_set(panel, cmd);
+	if (rc)
+		DSI_ERR("[%s] failed to send cmd %d, rc=%d\n", panel->name, cmd, rc);
+	else
+		DSI_INFO("[%s] refresh_rate: %d\n", panel->name, adj_mode->timing.refresh_rate);
+
+out:
+	mutex_unlock(&panel->panel_lock);
 }
 
 int dsi_panel_pre_disable(struct dsi_panel *panel)

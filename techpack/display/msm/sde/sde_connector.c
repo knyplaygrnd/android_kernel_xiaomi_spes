@@ -85,15 +85,19 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 
 	c_conn = bl_get_data(bd);
 	display = (struct dsi_display *) c_conn->display;
-	if (brightness > display->panel->bl_config.bl_max_level)
-		brightness = display->panel->bl_config.bl_max_level;
+	if (brightness > display->panel->bl_config.brightness_max_level)
+		brightness = display->panel->bl_config.brightness_max_level;
 
-	/* map UI brightness into driver backlight level with rounding */
-	bl_lvl = mult_frac(brightness, display->panel->bl_config.bl_max_level,
-			display->panel->bl_config.brightness_max_level);
+	if (brightness) {
+		int bl_min = display->panel->bl_config.bl_min_level ? : 1;
+		int bl_range = display->panel->bl_config.bl_max_level - bl_min;
 
-	if (!bl_lvl && brightness)
-		bl_lvl = 1;
+		/* map UI brightness into driver backlight level rounding it */
+		bl_lvl = bl_min + DIV_ROUND_CLOSEST((brightness - 1) * bl_range,
+			display->panel->bl_config.brightness_max_level - 1);
+	} else {
+		bl_lvl = 0;
+	}
 
 	if (!c_conn->allow_bl_update) {
 		c_conn->unset_bl_level = bl_lvl;
@@ -149,7 +153,7 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 	display = (struct dsi_display *) c_conn->display;
 	bl_config = &display->panel->bl_config;
 	props.max_brightness = bl_config->brightness_max_level;
-	props.brightness = bl_config->brightness_max_level;
+	props.brightness = bl_config->brightness_init_level;
 	snprintf(bl_node_name, BL_NODE_NAME_SIZE, "panel%u-backlight",
 							display_count);
 	c_conn->bl_device = backlight_device_register(bl_node_name, dev->dev,
@@ -939,6 +943,27 @@ int sde_connector_clk_ctrl(struct drm_connector *connector, bool enable)
 	return rc;
 }
 
+void sde_connector_esd_irq_cleanup(struct sde_connector *c_conn)
+{
+	int irq;
+
+	if (!c_conn)
+		return;
+
+	if (!c_conn->esd_irq_registered)
+		return;
+
+	irq = c_conn->esd_irq;
+	if (irq > 0) {
+		disable_irq(irq);
+		synchronize_irq(irq);
+		free_irq(irq, c_conn);
+	}
+
+	c_conn->esd_irq_registered = false;
+	c_conn->esd_irq = 0;
+}
+
 void sde_connector_destroy(struct drm_connector *connector)
 {
 	struct sde_connector *c_conn;
@@ -955,6 +980,8 @@ void sde_connector_destroy(struct drm_connector *connector)
 
 	if (c_conn->ops.pre_destroy)
 		c_conn->ops.pre_destroy(connector, c_conn->display);
+
+	sde_connector_esd_irq_cleanup(c_conn);
 
 	if (c_conn->blob_caps)
 		drm_property_blob_put(c_conn->blob_caps);
@@ -2173,6 +2200,54 @@ static void _sde_connector_report_panel_dead(struct sde_connector *conn,
 			conn->base.base.id, conn->encoder->base.id);
 }
 
+static irqreturn_t esd_err_irq_handle(int irq, void *data)
+{
+	struct sde_connector *c_conn = data;
+	struct dsi_display *dsi_display;
+	struct dsi_panel *panel;
+	struct gpio_desc *desc;
+	bool panel_on = false;
+	int gpio_val = -1;
+	int ret = 0;
+
+	if (!c_conn || !c_conn->display) {
+		SDE_ERROR("not able to get connector object\n");
+		return IRQ_HANDLED;
+	}
+
+	if (c_conn->connector_type != DRM_MODE_CONNECTOR_DSI)
+		return IRQ_HANDLED;
+
+	dsi_display = (struct dsi_display *)c_conn->display;
+	if (!dsi_display || !dsi_display->panel)
+		return IRQ_HANDLED;
+
+	panel = dsi_display->panel;
+
+	desc = gpio_to_desc(panel->esd_config.esd_err_irq_gpio);
+	if (desc)
+		gpio_val = gpiod_get_value(desc);
+	else
+		gpio_val = gpio_get_value(panel->esd_config.esd_err_irq_gpio);
+
+	panel_on = dsi_panel_initialized(panel);
+	SDE_INFO("esd irq fired: gpio=%d val=%d panel_on=%d\n",
+		panel->esd_config.esd_err_irq_gpio, gpio_val, panel_on);
+
+	if (!panel_on)
+		return IRQ_HANDLED;
+
+	ret = atomic_cmpxchg(&c_conn->esd_pending, 0, 1);
+	if (ret != 0)
+		return IRQ_HANDLED;
+
+	_sde_connector_report_panel_dead(c_conn, false);
+
+	atomic_set(&c_conn->esd_pending, 0);
+
+	return IRQ_HANDLED;
+}
+
 int sde_connector_esd_status(struct drm_connector *conn)
 {
 	struct sde_connector *sde_conn = NULL;
@@ -2368,7 +2443,7 @@ int sde_connector_set_blob_data(struct drm_connector *conn,
 		return -EINVAL;
 	}
 
-	info = vzalloc(sizeof(*info));
+	info = kvzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
 
@@ -2426,7 +2501,7 @@ int sde_connector_set_blob_data(struct drm_connector *conn,
 			SDE_KMS_INFO_DATALEN(info),
 			prop_id);
 exit:
-	vfree(info);
+	kvfree(info);
 
 	return rc;
 }
@@ -2470,6 +2545,23 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 				&dsi_display->panel->hdr_props,
 				sizeof(dsi_display->panel->hdr_props),
 				CONNECTOR_PROP_HDR_INFO);
+		}
+
+		/* register esd irq and enable it after panel enabled */
+		if (dsi_display && dsi_display->panel &&
+			dsi_display->panel->esd_config.esd_err_irq > 0) {
+			int irq = dsi_display->panel->esd_config.esd_err_irq;
+			unsigned long irqflags = dsi_display->panel->esd_config.esd_err_irq_flags;
+
+			rc = request_threaded_irq(irq, NULL, esd_err_irq_handle,
+					irqflags, "esd_err_irq", c_conn);
+			if (rc < 0) {
+				SDE_ERROR("request irq(%d) failed, rc=%d\n", irq, rc);
+			} else {
+				SDE_INFO("requested esd irq %d (irqflags=0x%lx)\n", irq, irqflags);
+				c_conn->esd_irq = irq;
+				c_conn->esd_irq_registered = true;
+			}
 		}
 	}
 
@@ -2688,6 +2780,10 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 			SDE_CONN_EVENT_VID_FIFO_OVERFLOW,
 			sde_connector_handle_disp_recovery,
 			c_conn);
+
+	atomic_set(&c_conn->esd_pending, 0);
+	c_conn->esd_irq = 0;
+	c_conn->esd_irq_registered = false;
 
 	rc = _sde_connector_install_properties(dev, sde_kms, c_conn,
 		connector_type, display, &display_info);

@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+menu "SYV (BQ2589X & SM5602) Support"
+	depends on NOPMI_CHARGER
+	depends on I2C && REGMAP_I2C
+
+config CHARGER_BQ2589X
+	tristate "TI BQ2589X Battery Charger"
+	help
+	  TI BQ2589X driver. enable support for OTG Wall Charger.
+
+config FUELGAUGE_SM5602
+	tristate "SM5602 fuel Gauge support"
+	help
+	  SM5602 fuel gauge driver. enable support for BMS.
+
+endmenu

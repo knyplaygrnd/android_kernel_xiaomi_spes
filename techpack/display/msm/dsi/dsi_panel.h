@@ -118,6 +118,7 @@ struct dsi_backlight_config {
 	u32 bl_min_level;
 	u32 bl_max_level;
 	u32 brightness_max_level;
+	u32 brightness_init_level;
 	u32 bl_level;
 	u32 bl_scale;
 	u32 bl_scale_sv;
@@ -170,6 +171,9 @@ struct drm_panel_esd_config {
 	u8 *return_buf;
 	u8 *status_buf;
 	u32 groups;
+	int esd_err_irq_gpio;
+	int esd_err_irq;
+	unsigned long esd_err_irq_flags;
 };
 
 struct dsi_panel {
@@ -225,6 +229,8 @@ struct dsi_panel {
 	int panel_test_gpio;
 	int power_mode;
 	enum dsi_panel_physical_type panel_type;
+
+	int hbm_mode;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -250,6 +256,11 @@ static inline void dsi_panel_release_panel_lock(struct dsi_panel *panel)
 static inline bool dsi_panel_is_type_oled(struct dsi_panel *panel)
 {
 	return (panel->panel_type == DSI_DISPLAY_PANEL_TYPE_OLED);
+}
+
+static inline u32 dsi_panel_get_bl_level(struct dsi_panel *panel)
+{
+	return panel->bl_config.bl_level;
 }
 
 struct dsi_panel *dsi_panel_get(struct device *parent,
@@ -344,5 +355,9 @@ void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
 
 void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
 		struct dsi_display_mode *mode, u32 frame_threshold_us);
+
+int dsi_panel_apply_hbm_mode(struct dsi_panel *panel);
+
+void dsi_panel_set_backlight_control(struct dsi_panel *panel, struct dsi_display_mode *adj_mode);
 
 #endif /* _DSI_PANEL_H_ */

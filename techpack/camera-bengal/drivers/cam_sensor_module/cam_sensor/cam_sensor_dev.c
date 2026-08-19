@@ -332,6 +332,7 @@ static int32_t cam_sensor_driver_platform_probe(
 	s_ctrl->sensor_state = CAM_SENSOR_INIT;
 
 	return rc;
+
 unreg_subdev:
 	cam_unregister_subdev(&(s_ctrl->v4l2_dev_str));
 free_s_ctrl:

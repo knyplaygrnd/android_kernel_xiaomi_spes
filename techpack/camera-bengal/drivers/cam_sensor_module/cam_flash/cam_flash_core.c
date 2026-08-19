@@ -504,6 +504,98 @@ static int cam_flash_ops(struct cam_flash_ctrl *flash_ctrl,
 	return 0;
 }
 
+int cam_flash_gpio_set(struct cam_flash_ctrl *fctrl, int idx, int val)
+{
+	int gpio, rc;
+
+	if (!fctrl || idx < 0 || idx > 1)
+		return -EINVAL;
+
+	if (val != 0 && val != 1)
+		return -EINVAL;
+
+	mutex_lock(&fctrl->gpio_state_lock);
+
+	gpio = fctrl->gpio_state.gpio[idx];
+	if (gpio < 0) {
+		mutex_unlock(&fctrl->gpio_state_lock);
+		CAM_ERR(CAM_FLASH, "gpio idx %d not configured", idx);
+		return -EINVAL;
+	}
+
+	if (!fctrl->gpio_state.owns[idx]) {
+		rc = cam_res_mgr_gpio_request(fctrl->soc_info.dev, gpio, 0, "CUSTOM_GPIO1");
+		if (rc) {
+			CAM_ERR(CAM_FLASH, "request gpio %d idx %d failed %d", gpio, idx, rc);
+			mutex_unlock(&fctrl->gpio_state_lock);
+			return rc;
+		}
+		fctrl->gpio_state.owns[idx] = true;
+		fctrl->gpio_state.value[idx] = -1;
+		CAM_INFO(CAM_FLASH, "requested gpio %d idx %d", gpio, idx);
+	}
+
+	if (fctrl->gpio_state.value[idx] == val) {
+		mutex_unlock(&fctrl->gpio_state_lock);
+		return 0;
+	}
+
+	rc = cam_res_mgr_gpio_set_value(gpio, val);
+	if (rc) {
+		CAM_ERR(CAM_FLASH, "set_value gpio %d idx %d val %d failed %d", gpio, idx, val, rc);
+		mutex_unlock(&fctrl->gpio_state_lock);
+		return rc;
+	}
+
+	fctrl->gpio_state.value[idx] = val;
+	CAM_DBG(CAM_FLASH, "gpio %d idx %d, %d", gpio, idx, val);
+	mutex_unlock(&fctrl->gpio_state_lock);
+	return 0;
+}
+EXPORT_SYMBOL(cam_flash_gpio_set);
+
+void cam_flash_gpio_free(struct cam_flash_ctrl *fctrl, int idx)
+{
+	int gpio, rc;
+
+	if (!fctrl || idx < 0 || idx > 1)
+		return;
+
+	mutex_lock(&fctrl->gpio_state_lock);
+
+	gpio = fctrl->gpio_state.gpio[idx];
+	if (gpio < 0) {
+		mutex_unlock(&fctrl->gpio_state_lock);
+		return;
+	}
+
+	if (fctrl->gpio_state.owns[idx]) {
+		rc = cam_res_mgr_gpio_set_value(gpio, 0);
+		if (rc)
+			CAM_ERR(CAM_FLASH, "set_low gpio %d idx %d failed %d", gpio, idx, rc);
+
+		fctrl->gpio_state.value[idx] = -1;
+		fctrl->gpio_state.owns[idx] = false;
+
+		cam_res_mgr_gpio_free(fctrl->soc_info.dev, gpio);
+
+		CAM_INFO(CAM_FLASH, "released gpio %d idx %d", gpio, idx);
+	}
+
+	mutex_unlock(&fctrl->gpio_state_lock);
+}
+EXPORT_SYMBOL(cam_flash_gpio_free);
+
+void cam_flash_gpio_cleanup(struct cam_flash_ctrl *fctrl)
+{
+	if (!fctrl)
+		return;
+
+	cam_flash_gpio_free(fctrl, 0);
+	cam_flash_gpio_free(fctrl, 1);
+}
+EXPORT_SYMBOL(cam_flash_gpio_cleanup);
+
 int cam_flash_off(struct cam_flash_ctrl *flash_ctrl)
 {
 	int rc = 0;
@@ -530,6 +622,8 @@ int cam_flash_off(struct cam_flash_ctrl *flash_ctrl)
 		flash_ctrl->flash_state = CAM_FLASH_STATE_CONFIG;
 	}
 
+	cam_flash_gpio_cleanup(flash_ctrl);
+
 	return 0;
 }
 
@@ -555,6 +649,12 @@ static int cam_flash_low(
 	if (rc)
 		CAM_ERR(CAM_FLASH, "Fire Torch failed: %d", rc);
 
+	rc = cam_flash_gpio_set(flash_ctrl, 1, 1);
+	if (rc) {
+		CAM_ERR(CAM_FLASH, "torch: set high failed %d", rc);
+		cam_flash_gpio_free(flash_ctrl, 1);
+	}
+
 	return rc;
 }
 
@@ -579,6 +679,12 @@ static int cam_flash_high(
 		CAMERA_SENSOR_FLASH_OP_FIREHIGH);
 	if (rc)
 		CAM_ERR(CAM_FLASH, "Fire Flash Failed: %d", rc);
+
+	rc = cam_flash_gpio_set(flash_ctrl, 0, 1);
+	if (rc) {
+		CAM_ERR(CAM_FLASH, "flash: set high failed %d", rc);
+		cam_flash_gpio_free(flash_ctrl, 0);
+	}
 
 	return rc;
 }
@@ -1223,11 +1329,13 @@ int cam_flash_i2c_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 			return rc;
 		}
 
-		rc = fctrl->func_tbl.power_ops(fctrl, true);
-		if (rc) {
-			CAM_ERR(CAM_FLASH,
-				"Enable Regulator Failed rc = %d", rc);
-			return rc;
+		if (fctrl->func_tbl.power_ops) {
+			rc = fctrl->func_tbl.power_ops(fctrl, true);
+			if (rc) {
+				CAM_ERR(CAM_FLASH,
+					"Enable Regulator Failed rc = %d", rc);
+				return rc;
+			}
 		}
 
 		rc = fctrl->func_tbl.apply_setting(fctrl, 0);
@@ -1506,11 +1614,13 @@ int cam_flash_pmic_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 			fctrl->nrt_info.cmn_attr.cmd_type =
 				CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_INFO;
 
-			rc = fctrl->func_tbl.power_ops(fctrl, true);
-			if (rc) {
-				CAM_ERR(CAM_FLASH,
-					"Enable Regulator Failed rc = %d", rc);
-				return rc;
+			if (fctrl->func_tbl.power_ops) {
+				rc = fctrl->func_tbl.power_ops(fctrl, true);
+				if (rc) {
+					CAM_ERR(CAM_FLASH,
+						"Enable Regulator Failed rc = %d", rc);
+					return rc;
+				}
 			}
 
 			fctrl->flash_state =
@@ -1947,11 +2057,15 @@ void cam_flash_shutdown(struct cam_flash_ctrl *fctrl)
 					"LED OFF FAILED: %d",
 					rc);
 		}
-		rc = fctrl->func_tbl.power_ops(fctrl, false);
-		if (rc)
-			CAM_ERR(CAM_FLASH, "Power Down Failed rc: %d",
-				rc);
+		if (fctrl->func_tbl.power_ops) {
+			rc = fctrl->func_tbl.power_ops(fctrl, false);
+			if (rc)
+				CAM_ERR(CAM_FLASH, "Power Down Failed rc: %d",
+					rc);
+		}
 	}
+
+	cam_flash_gpio_cleanup(fctrl);
 
 	rc = cam_flash_release_dev(fctrl);
 	if (rc)

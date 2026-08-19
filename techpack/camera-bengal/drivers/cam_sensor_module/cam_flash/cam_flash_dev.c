@@ -126,8 +126,10 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 			CAM_WARN(CAM_FLASH,
 				"Failed in destroying the device Handle");
 
-		if (fctrl->func_tbl.power_ops(fctrl, false))
-			CAM_WARN(CAM_FLASH, "Power Down Failed");
+		if (fctrl->func_tbl.power_ops) {
+			if (fctrl->func_tbl.power_ops(fctrl, false))
+				CAM_WARN(CAM_FLASH, "Power Down Failed");
+		}
 
 		fctrl->streamoff_count = 0;
 		fctrl->flash_state = CAM_FLASH_STATE_INIT;
@@ -326,7 +328,9 @@ static int cam_flash_platform_remove(struct platform_device *pdev)
 	mutex_lock(&fctrl->flash_mutex);
 	cam_flash_shutdown(fctrl);
 	mutex_unlock(&fctrl->flash_mutex);
+	cam_flash_gpio_cleanup(fctrl);
 	cam_unregister_subdev(&(fctrl->v4l2_dev_str));
+	mutex_destroy(&fctrl->gpio_state_lock);
 	platform_set_drvdata(pdev, NULL);
 	v4l2_set_subdevdata(&fctrl->v4l2_dev_str.sd, NULL);
 	kfree(fctrl);
@@ -512,8 +516,25 @@ static int32_t cam_flash_platform_probe(struct platform_device *pdev)
 		/* PMIC Flash */
 		fctrl->func_tbl.parser = cam_flash_pmic_pkt_parser;
 		fctrl->func_tbl.apply_setting = cam_flash_pmic_apply_setting;
-		fctrl->func_tbl.power_ops = cam_flash_pmic_power_ops;
+		fctrl->func_tbl.power_ops = NULL;
 		fctrl->func_tbl.flush_req = cam_flash_pmic_flush_request;
+	}
+
+	mutex_init(&fctrl->gpio_state_lock);
+	fctrl->gpio_state.gpio[0] = fctrl->gpio_state.gpio[1] = -1;
+	fctrl->gpio_state.value[0] = fctrl->gpio_state.value[1] = -1;
+	fctrl->gpio_state.owns[0] = fctrl->gpio_state.owns[1] = false;
+
+	fctrl->gpio_state.gpio[0] = of_get_named_gpio(pdev->dev.of_node, "qcom,flash-gpios", 0);
+	if (!gpio_is_valid(fctrl->gpio_state.gpio[0])) {
+		CAM_WARN(CAM_FLASH, "flash_en (idx0) invalid %d", fctrl->gpio_state.gpio[0]);
+		fctrl->gpio_state.gpio[0] = -1;
+	}
+
+	fctrl->gpio_state.gpio[1] = of_get_named_gpio(pdev->dev.of_node, "qcom,flash-gpios", 1);
+	if (!gpio_is_valid(fctrl->gpio_state.gpio[1])) {
+		CAM_WARN(CAM_FLASH, "flash_now (idx1) invalid %d", fctrl->gpio_state.gpio[1]);
+		fctrl->gpio_state.gpio[1] = -1;
 	}
 
 	rc = cam_flash_init_subdev(fctrl);
@@ -542,6 +563,7 @@ free_cci_resource:
 	kfree(fctrl->io_master_info.cci_client);
 	fctrl->io_master_info.cci_client = NULL;
 free_resource:
+	mutex_destroy(&fctrl->gpio_state_lock);
 	kfree(fctrl->i2c_data.per_frame);
 	kfree(fctrl->soc_info.soc_private);
 	cam_soc_util_release_platform_resource(&fctrl->soc_info);
